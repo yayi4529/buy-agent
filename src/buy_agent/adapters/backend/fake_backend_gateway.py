@@ -40,6 +40,7 @@ class FakeBackendGateway:
             "warehouse": frozenset({"WAREHOUSE"}),
             "multi": frozenset({"REQUESTER", "REVIEWER"}),
             "disabled": frozenset({"REQUESTER"}),
+            "no_role": frozenset(),
         }
         return {
             name: CurrentPrincipal(
@@ -65,6 +66,7 @@ class FakeBackendGateway:
             4: [fake_requirement(401, "PENDING_WAREHOUSE")],
             5: [fake_requirement(501, "READY_TO_SUBMIT")],
             6: [],
+            7: [],
         }
 
     async def resolve_identity(self, identity: ExternalIdentity) -> CurrentPrincipal:
@@ -81,4 +83,10 @@ class FakeBackendGateway:
         for requirement in self.requirements.get(principal.user_id, []):
             if requirement.requirement_id == requirement_id:
                 return requirement
+        if any(
+            requirement.requirement_id == requirement_id
+            for requirements in self.requirements.values()
+            for requirement in requirements
+        ):
+            raise PermissionError(f"requirement {requirement_id} is not accessible")
         raise LookupError(f"requirement {requirement_id} is not accessible")
