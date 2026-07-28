@@ -1,5 +1,9 @@
 import re
 
+from buy_agent.application.errors import (
+    RequirementAccessDeniedError,
+    RequirementNotFoundError,
+)
 from buy_agent.domain.conversation import SessionState
 from buy_agent.domain.identity import CurrentPrincipal
 from buy_agent.domain.requirement import RequirementContext, RequirementResolution
@@ -17,14 +21,17 @@ class RequirementResolver:
         self, *, user_message: str, principal: CurrentPrincipal, session: SessionState
     ) -> RequirementResolution:
         requirements = await self._backend.list_active_requirements(principal=principal)
-        explicit = self._find_explicit(user_message, requirements)
-        if explicit is not None:
-            return RequirementResolution(explicit)
+        explicit_id, explicit_no = self._extract_explicit(user_message)
+        if explicit_id is not None:
+            return RequirementResolution(await self._get_requirement(explicit_id, principal))
+        if explicit_no is not None:
+            for requirement in requirements:
+                if requirement.requirement_no.upper() == explicit_no:
+                    return RequirementResolution(requirement)
+            raise RequirementNotFoundError
 
         if session.active_requirement_id is not None:
-            requirement = await self._backend.get_requirement(
-                requirement_id=session.active_requirement_id, principal=principal
-            )
+            requirement = await self._get_requirement(session.active_requirement_id, principal)
             return RequirementResolution(requirement)
 
         if len(requirements) == 1:
@@ -34,17 +41,22 @@ class RequirementResolver:
         return RequirementResolution(None)
 
     @staticmethod
-    def _find_explicit(
-        text: str, requirements: list[RequirementContext]
-    ) -> RequirementContext | None:
+    def _extract_explicit(text: str) -> tuple[int | None, str | None]:
         id_match = _ID_PATTERN.search(text)
         no_match = _NO_PATTERN.search(text)
-        wanted_id = int(id_match.group(1)) if id_match else None
-        wanted_no = no_match.group(0).upper() if no_match else None
-        for requirement in requirements:
-            if (
-                requirement.requirement_id == wanted_id
-                or requirement.requirement_no.upper() == wanted_no
-            ):
-                return requirement
-        return None
+        return (
+            int(id_match.group(1)) if id_match else None,
+            no_match.group(0).upper() if no_match else None,
+        )
+
+    async def _get_requirement(
+        self, requirement_id: int, principal: CurrentPrincipal
+    ) -> RequirementContext:
+        try:
+            return await self._backend.get_requirement(
+                requirement_id=requirement_id, principal=principal
+            )
+        except PermissionError as error:
+            raise RequirementAccessDeniedError from error
+        except LookupError as error:
+            raise RequirementNotFoundError from error
