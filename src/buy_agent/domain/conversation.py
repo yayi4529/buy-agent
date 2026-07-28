@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from buy_agent.domain.identity import CurrentPrincipal
 from buy_agent.domain.requirement import RequirementContext
+from buy_agent.memory.models import SessionMemory
+
+if TYPE_CHECKING:
+    from buy_agent.ports.backend_gateway import BackendGateway
 
 
 @dataclass
@@ -25,3 +29,8 @@ class AgentRuntimeContext:
     session: SessionState
     requirement: RequirementContext | None
     available_tool_names: frozenset[str]
+    trace_id: str = ""
+    event_id: str = ""
+    session_key: str = ""
+    memory: SessionMemory | None = None
+    backend_gateway: "BackendGateway | None" = None

@@ -1,5 +1,13 @@
+from decimal import Decimal
+from typing import Any
+
 from buy_agent.domain.identity import CurrentPrincipal, ExternalIdentity
 from buy_agent.domain.requirement import RequirementContext
+from buy_agent.ports.backend_gateway import (
+    BuildingOption,
+    HandlerCandidate,
+    ProductRecommendation,
+)
 
 
 def fake_requirement(
@@ -29,6 +37,64 @@ class FakeBackendGateway:
         self.principals = principals or self.default_principals()
         self.requirements = (
             requirements if requirements is not None else self.default_requirements()
+        )
+        self.calls: dict[str, list[dict[str, Any]]] = {}
+        self.create_purchase_request_call_count = 0
+        self.formal_action_call_count = 0
+        self.buildings = {
+            1: (BuildingOption(1, "一号楼", True),),
+            6: (
+                BuildingOption(1, "一号楼", True),
+                BuildingOption(2, "二号楼"),
+            ),
+            7: (),
+        }
+        self.reviewers: dict[int, dict[int, tuple[HandlerCandidate, ...]]] = {
+            1: {
+                1: (HandlerCandidate(101, "张楼长", "张楼长（一号楼）"),),
+            },
+            6: {
+                1: (
+                    HandlerCandidate(101, "张楼长", "张楼长（一号楼）"),
+                    HandlerCandidate(102, "李楼长", "李楼长（一号楼）"),
+                ),
+                2: (HandlerCandidate(201, "王楼长", "王楼长（二号楼）"),),
+            },
+        }
+        self.products: tuple[ProductRecommendation, ...] = (
+            ProductRecommendation(
+                "rec-server-1",
+                "product-server-1",
+                "服务器",
+                "机架式服务器",
+                "戴尔",
+                "PowerEdge R760",
+                "台",
+                Decimal(68999),
+                "适合模型推理",
+            ),
+            ProductRecommendation(
+                "rec-server-2",
+                "product-server-2",
+                "服务器",
+                "机架式服务器",
+                "联想",
+                "ThinkSystem SR650 V3",
+                "台",
+                Decimal(65999),
+                "通用计算配置",
+            ),
+            ProductRecommendation(
+                "rec-server-3",
+                "product-server-3",
+                "服务器",
+                "机架式服务器",
+                "浪潮",
+                "NF5180M6",
+                "台",
+                Decimal(61999),
+                "高性价比配置",
+            ),
         )
 
     @staticmethod
@@ -90,3 +156,61 @@ class FakeBackendGateway:
         ):
             raise PermissionError(f"requirement {requirement_id} is not accessible")
         raise LookupError(f"requirement {requirement_id} is not accessible")
+
+    def _record(self, name: str, **arguments: Any) -> None:
+        self.calls.setdefault(name, []).append(arguments)
+
+    async def list_available_buildings(
+        self, *, principal: CurrentPrincipal
+    ) -> tuple[BuildingOption, ...]:
+        self._record("list_available_buildings", principal=principal)
+        return self.buildings.get(principal.user_id, ())
+
+    async def recommend_products(
+        self,
+        *,
+        principal: CurrentPrincipal,
+        query: str,
+        device_profession: str | None,
+        device_name: str | None,
+        brand_preference: str | None,
+        limit: int,
+    ) -> tuple[ProductRecommendation, ...]:
+        self._record(
+            "recommend_products",
+            principal=principal,
+            query=query,
+            device_profession=device_profession,
+            device_name=device_name,
+            brand_preference=brand_preference,
+            limit=limit,
+        )
+        if "无结果" in query:
+            return ()
+        matches = self.products
+        if brand_preference:
+            matches = tuple(item for item in matches if item.brand == brand_preference)
+        return matches[:limit]
+
+    async def get_product_recommendation(
+        self, *, principal: CurrentPrincipal, recommendation_id: str
+    ) -> ProductRecommendation | None:
+        self._record(
+            "get_product_recommendation",
+            principal=principal,
+            recommendation_id=recommendation_id,
+        )
+        return next(
+            (item for item in self.products if item.recommendation_id == recommendation_id),
+            None,
+        )
+
+    async def list_reviewer_candidates(
+        self, *, principal: CurrentPrincipal, building_id: int
+    ) -> tuple[HandlerCandidate, ...]:
+        self._record(
+            "list_reviewer_candidates",
+            principal=principal,
+            building_id=building_id,
+        )
+        return self.reviewers.get(principal.user_id, {}).get(building_id, ())
