@@ -82,6 +82,13 @@ class OpenAICompatibleLLMClient:
         )
         return result
 
+    async def aclose(self) -> None:
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
+
 
 def _map_sdk_error(error: Exception) -> Exception:
     error_name = type(error).__name__
