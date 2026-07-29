@@ -15,6 +15,12 @@ class Settings:
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
     llm_temperature: float = 0.0
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    feishu_verification_token: str | None = None
+    feishu_encrypt_key: str | None = None
+    feishu_enabled: bool = False
+    feishu_request_timeout_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         if self.agent_max_rounds < 1:
@@ -29,6 +35,8 @@ class Settings:
             raise ValueError("llm_max_retries must be between 0 and 5")
         if not 0 <= self.llm_temperature <= 2:
             raise ValueError("llm_temperature must be between 0 and 2")
+        if not 0 < self.feishu_request_timeout_seconds <= 300:
+            raise ValueError("feishu_request_timeout_seconds must be between 0 and 300")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -40,9 +48,24 @@ class Settings:
             llm_timeout_seconds=float(os.getenv("BUY_AGENT_LLM_TIMEOUT_SECONDS", "30")),
             llm_max_retries=int(os.getenv("BUY_AGENT_LLM_MAX_RETRIES", "2")),
             llm_temperature=float(os.getenv("BUY_AGENT_LLM_TEMPERATURE", "0")),
+            feishu_app_id=os.getenv("BUY_AGENT_FEISHU_APP_ID") or None,
+            feishu_app_secret=os.getenv("BUY_AGENT_FEISHU_APP_SECRET") or None,
+            feishu_verification_token=os.getenv("BUY_AGENT_FEISHU_VERIFICATION_TOKEN") or None,
+            feishu_encrypt_key=os.getenv("BUY_AGENT_FEISHU_ENCRYPT_KEY") or None,
+            feishu_enabled=os.getenv("BUY_AGENT_FEISHU_ENABLED", "").lower()
+            in {"1", "true", "yes", "on"},
+            feishu_request_timeout_seconds=float(
+                os.getenv("BUY_AGENT_FEISHU_REQUEST_TIMEOUT_SECONDS", "10")
+            ),
         )
 
     def __repr__(self) -> str:
         values = dict(self.__dict__)
         values["llm_api_key"] = "***" if self.llm_api_key else None
+        for name in (
+            "feishu_app_secret",
+            "feishu_verification_token",
+            "feishu_encrypt_key",
+        ):
+            values[name] = "***" if values[name] else None
         return f"Settings({values!r})"
