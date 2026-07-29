@@ -21,6 +21,11 @@ class Settings:
     feishu_encrypt_key: str | None = None
     feishu_enabled: bool = False
     feishu_request_timeout_seconds: float = 10.0
+    http_host: str = "127.0.0.1"
+    http_port: int = 8000
+    http_log_level: str = "info"
+    feishu_webhook_path: str = "/webhooks/feishu"
+    feishu_webhook_max_body_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
         if self.agent_max_rounds < 1:
@@ -37,6 +42,14 @@ class Settings:
             raise ValueError("llm_temperature must be between 0 and 2")
         if not 0 < self.feishu_request_timeout_seconds <= 300:
             raise ValueError("feishu_request_timeout_seconds must be between 0 and 300")
+        if not 1 <= self.http_port <= 65535:
+            raise ValueError("http_port must be between 1 and 65535")
+        if self.http_log_level not in {"critical", "error", "warning", "info", "debug", "trace"}:
+            raise ValueError("unsupported http_log_level")
+        if not self.feishu_webhook_path.startswith("/"):
+            raise ValueError("feishu_webhook_path must start with /")
+        if not 1 <= self.feishu_webhook_max_body_bytes <= 10 * 1024 * 1024:
+            raise ValueError("feishu_webhook_max_body_bytes must be between 1 and 10485760")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,6 +69,13 @@ class Settings:
             in {"1", "true", "yes", "on"},
             feishu_request_timeout_seconds=float(
                 os.getenv("BUY_AGENT_FEISHU_REQUEST_TIMEOUT_SECONDS", "10")
+            ),
+            http_host=os.getenv("BUY_AGENT_HTTP_HOST", "127.0.0.1"),
+            http_port=int(os.getenv("BUY_AGENT_HTTP_PORT", "8000")),
+            http_log_level=os.getenv("BUY_AGENT_HTTP_LOG_LEVEL", "info").lower(),
+            feishu_webhook_path=os.getenv("BUY_AGENT_FEISHU_WEBHOOK_PATH", "/webhooks/feishu"),
+            feishu_webhook_max_body_bytes=int(
+                os.getenv("BUY_AGENT_FEISHU_WEBHOOK_MAX_BODY_BYTES", "1048576")
             ),
         )
 

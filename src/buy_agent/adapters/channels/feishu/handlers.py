@@ -5,7 +5,6 @@ from buy_agent.adapters.channels.feishu.action_adapter import FeishuActionAdapte
 from buy_agent.adapters.channels.feishu.action_result_renderer import (
     FeishuActionResultRenderer,
 )
-from buy_agent.adapters.channels.feishu.client import FeishuChannelClient
 from buy_agent.adapters.channels.feishu.errors import ChannelError, ChannelEventFormatError
 from buy_agent.adapters.channels.feishu.event_adapter import FeishuEventAdapter
 from buy_agent.adapters.channels.feishu.models import (
@@ -18,6 +17,7 @@ from buy_agent.application.chat_orchestrator import ChatOrchestrator
 from buy_agent.application.identity_service import IdentityService
 from buy_agent.domain.enums import ChannelType
 from buy_agent.domain.identity import ExternalIdentity
+from buy_agent.ports.channel import ChannelDeliveryResult, RenderedInteraction
 
 logger = logging.getLogger(__name__)
 IMAGE_MESSAGE = "当前暂不支持图片识别，请直接发送采购信息文字。"
@@ -27,15 +27,15 @@ SAFE_ERROR = "处理采购消息时出现问题，请稍后重试。"
 
 
 class FeishuClientPort(Protocol):
-    async def reply_text(self, *, external_message_id: str, text: str) -> object: ...
+    async def reply_text(self, *, external_message_id: str, text: str) -> ChannelDeliveryResult: ...
 
     async def reply_interaction(
-        self, *, external_message_id: str, interaction: object
-    ) -> object: ...
+        self, *, external_message_id: str, interaction: RenderedInteraction
+    ) -> ChannelDeliveryResult: ...
 
     async def update_interaction(
-        self, *, external_interaction_id: str, interaction: object
-    ) -> object: ...
+        self, *, external_interaction_id: str, interaction: RenderedInteraction
+    ) -> ChannelDeliveryResult: ...
 
 
 class FeishuMessageHandler:
@@ -45,7 +45,7 @@ class FeishuMessageHandler:
         event_adapter: FeishuEventAdapter,
         orchestrator: ChatOrchestrator,
         renderer: FeishuResponseRenderer,
-        client: FeishuChannelClient,
+        client: FeishuClientPort,
     ) -> None:
         self._adapter = event_adapter
         self._orchestrator = orchestrator
@@ -98,7 +98,7 @@ class FeishuActionHandler:
         identity_service: IdentityService,
         orchestrator: ActionOrchestrator,
         renderer: FeishuActionResultRenderer,
-        client: FeishuChannelClient,
+        client: FeishuClientPort,
     ) -> None:
         self._adapter = action_adapter
         self._identities = identity_service
