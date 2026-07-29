@@ -4,9 +4,10 @@ from buy_agent.application.errors import (
     RequirementAccessDeniedError,
     RequirementNotFoundError,
 )
-from buy_agent.domain.conversation import SessionState
+from buy_agent.domain.conversation import AgentConversation, SessionState
 from buy_agent.domain.identity import CurrentPrincipal
 from buy_agent.domain.requirement import RequirementContext, RequirementResolution
+from buy_agent.memory.models import SessionMemory
 from buy_agent.ports.backend_gateway import BackendGateway
 
 _ID_PATTERN = re.compile(r"(?:requirement_id\s*=\s*|采购单\s*)(\d+)", re.IGNORECASE)
@@ -16,6 +17,10 @@ _NO_PATTERN = re.compile(r"\bPR-\d{4}-\d+\b", re.IGNORECASE)
 class RequirementResolver:
     def __init__(self, backend: BackendGateway) -> None:
         self._backend = backend
+
+    @property
+    def backend(self) -> BackendGateway:
+        return self._backend
 
     async def resolve(
         self, *, user_message: str, principal: CurrentPrincipal, session: SessionState
@@ -39,6 +44,23 @@ class RequirementResolver:
         if len(requirements) > 1:
             return RequirementResolution(None, True, tuple(requirements))
         return RequirementResolution(None)
+
+    async def resolve_for_conversation(
+        self,
+        *,
+        user_message: str,
+        principal: CurrentPrincipal,
+        conversation: AgentConversation,
+        memory: SessionMemory,
+    ) -> RequirementResolution:
+        if conversation.purchase_request_id is None and memory.current_action == "CREATE_REQUEST":
+            return RequirementResolution(None)
+        legacy = SessionState(
+            session_key=conversation.session_key,
+            user_id=conversation.employee_id,
+            active_requirement_id=conversation.purchase_request_id,
+        )
+        return await self.resolve(user_message=user_message, principal=principal, session=legacy)
 
     @staticmethod
     def _extract_explicit(text: str) -> tuple[int | None, str | None]:

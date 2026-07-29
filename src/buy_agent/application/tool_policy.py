@@ -1,5 +1,17 @@
 from buy_agent.domain.identity import CurrentPrincipal
 from buy_agent.domain.requirement import RequirementContext
+from buy_agent.memory.models import SessionMemory
+
+_REQUESTER_CREATE_TOOLS = frozenset(
+    {
+        "save_request_draft_fields",
+        "list_available_buildings",
+        "select_building",
+        "recommend_products",
+        "select_product_recommendation",
+        "prepare_request_submission",
+    }
+)
 
 _ROLE_TOOLS = {
     "REQUESTER": {
@@ -38,6 +50,20 @@ _STATUS_TOOLS = {
 
 
 class ToolPolicy:
+    def resolve_allowed_tools(
+        self,
+        principal: CurrentPrincipal,
+        memory: SessionMemory,
+        purchase_request_id: int | None,
+    ) -> frozenset[str]:
+        if (
+            "REQUESTER" in principal.roles
+            and memory.current_action == "CREATE_REQUEST"
+            and purchase_request_id is None
+        ):
+            return _REQUESTER_CREATE_TOOLS
+        return frozenset()
+
     def allowed_tools(
         self, principal: CurrentPrincipal, requirement: RequirementContext | None
     ) -> frozenset[str]:

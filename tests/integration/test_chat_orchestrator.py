@@ -1,20 +1,21 @@
 import asyncio
 from dataclasses import dataclass
 
-import pytest
-
 from buy_agent.adapters.agent.fake_procurement_agent import FakeProcurementAgent
-from buy_agent.adapters.backend.fake_backend_gateway import FakeBackendGateway, fake_requirement
+from buy_agent.adapters.backend.fake_backend_gateway import FakeBackendGateway
 from buy_agent.adapters.channels.fake_channel import FakeChannel
 from buy_agent.adapters.persistence.local_lock_manager import LocalLockManager
+from buy_agent.adapters.persistence.memory_conversation_store import (
+    MemoryConversationStore,
+)
 from buy_agent.adapters.persistence.memory_event_store import MemoryEventStore
 from buy_agent.adapters.persistence.memory_message_store import MemoryMessageStore
-from buy_agent.adapters.persistence.memory_session_store import MemorySessionStore
+from buy_agent.adapters.persistence.memory_session_store import MemorySessionStateStore
 from buy_agent.application.chat_orchestrator import ChatOrchestrator
 from buy_agent.application.context_builder import ContextBuilder
 from buy_agent.application.identity_service import IdentityService
 from buy_agent.application.requirement_resolver import RequirementResolver
-from buy_agent.application.session_service import SessionService
+from buy_agent.application.session_service import SessionService, build_session_key
 from buy_agent.application.tool_policy import ToolPolicy
 from buy_agent.domain.enums import ChannelType, InboundEventType
 from buy_agent.domain.events import InboundEvent
@@ -26,89 +27,83 @@ class Harness:
     orchestrator: ChatOrchestrator
     agent: FakeProcurementAgent
     channel: FakeChannel
-    sessions: MemorySessionStore
+    conversations: MemoryConversationStore
+    states: MemorySessionStateStore
+    messages: MemoryMessageStore
 
 
-def harness(requirements: dict[int, list] | None = None, delay: float = 0.0) -> Harness:
-    backend = FakeBackendGateway(requirements=requirements)
-    sessions = MemorySessionStore()
-    agent = FakeProcurementAgent(delay=delay)
+def harness(delay: float = 0) -> Harness:
+    backend = FakeBackendGateway()
+    conversations = MemoryConversationStore()
+    states = MemorySessionStateStore()
+    messages = MemoryMessageStore()
+    agent = FakeProcurementAgent(delay)
     channel = FakeChannel()
+    session_service = SessionService(conversations, states, messages)
     orchestrator = ChatOrchestrator(
         identity_service=IdentityService(backend),
-        session_service=SessionService(sessions),
+        session_service=session_service,
         requirement_resolver=RequirementResolver(backend),
         context_builder=ContextBuilder(),
         tool_policy=ToolPolicy(),
         agent=agent,
         channel=channel,
-        message_store=MemoryMessageStore(),
         event_store=MemoryEventStore(),
         lock_manager=LocalLockManager(),
+        backend_gateway=backend,
     )
-    return Harness(orchestrator, agent, channel, sessions)
+    return Harness(orchestrator, agent, channel, conversations, states, messages)
 
 
-def event(event_id: str, user: str = "requester") -> InboundEvent:
+def event(event_id: str, user: str = "requester", message_id: str | None = None) -> InboundEvent:
     return InboundEvent(
-        event_id=event_id,
-        message_id=f"message-{event_id}",
-        event_type=InboundEventType.TEXT_MESSAGE,
-        identity=ExternalIdentity(ChannelType.FEISHU, "tenant", user),
-        conversation_id=f"conversation-{user}",
-        text="查看我的采购单",
-        action=None,
-        raw_payload={},
+        event_id,
+        message_id or f"m-{event_id}",
+        InboundEventType.TEXT_MESSAGE,
+        ExternalIdentity(ChannelType.FEISHU, "tenant", user),
+        f"chat-{user}",
+        "采购服务器",
+        None,
+        {},
     )
 
 
-@pytest.mark.asyncio
-async def test_single_user_flows_through_agent_and_channel() -> None:
-    app = harness({1: [fake_requirement(101)]})
+async def test_user_message_precedes_agent_and_memory_restores() -> None:
+    app = harness()
     await app.orchestrator.handle(event("e1"))
-    assert len(app.agent.calls) == 1
-    context = app.agent.calls[0][1]
-    assert context.principal.user_id == 1
-    assert context.requirement and context.requirement.requirement_id == 101
-    assert "save_requester_fields" in context.available_tool_names
-    assert len(app.channel.sent_messages) == 1
-    assert "requirement_id=101" in app.channel.sent_messages[0].text
+    await app.orchestrator.handle(event("e2"))
+    assert len(app.agent.calls) == 2
+    assert app.agent.calls[1][1].memory is not None
+    conversation = await app.conversations.get_active_by_session_key(
+        build_session_key(event("x").identity)
+    )
+    recent = await app.messages.list_recent(conversation.conversation_id, limit=10)  # type: ignore[union-attr]
+    assert [item.sender_type for item in recent] == ["USER", "AGENT", "USER", "AGENT"]
 
 
-@pytest.mark.asyncio
-async def test_multiple_requirements_prompt_without_agent_call() -> None:
-    app = harness({1: [fake_requirement(101), fake_requirement(102)]})
-    await app.orchestrator.handle(event("e1"))
-    assert app.agent.calls == []
-    assert len(app.channel.sent_messages) == 1
-    assert "请明确选择" in app.channel.sent_messages[0].text
-
-
-@pytest.mark.asyncio
-async def test_duplicate_event_is_processed_once() -> None:
-    app = harness({1: [fake_requirement(101)]})
-    duplicate = event("same")
-    await asyncio.gather(app.orchestrator.handle(duplicate), app.orchestrator.handle(duplicate))
-    assert len(app.agent.calls) == 1
-    assert len(app.channel.sent_messages) == 1
-
-
-@pytest.mark.asyncio
-async def test_same_session_is_strictly_serialized() -> None:
-    app = harness({1: [fake_requirement(101)]}, delay=0.03)
-    await asyncio.gather(*(app.orchestrator.handle(event(f"e{i}")) for i in range(3)))
-    assert len(app.agent.calls) == 3
-    assert app.agent.max_active_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_different_sessions_run_in_parallel_and_do_not_mix_memory() -> None:
-    app = harness({1: [fake_requirement(101)], 2: [fake_requirement(201)]}, delay=0.03)
+async def test_duplicate_event_and_message_call_agent_once() -> None:
+    app = harness()
     await asyncio.gather(
-        app.orchestrator.handle(event("e1", "requester")),
-        app.orchestrator.handle(event("e2", "reviewer")),
+        app.orchestrator.handle(event("same", message_id="same-message")),
+        app.orchestrator.handle(event("same", message_id="same-message")),
     )
-    assert app.agent.max_active_calls == 2
-    contexts = [call[1] for call in app.agent.calls]
-    assert {context.principal.user_id for context in contexts} == {1, 2}
-    assert {context.session.user_id for context in contexts} == {1, 2}
+    await app.orchestrator.handle(event("other", message_id="same-message"))
+    assert len(app.agent.calls) == 1
+    assert len(app.channel.sent_messages) == 1
+
+
+async def test_same_session_serial_and_different_sessions_parallel() -> None:
+    same = harness(0.02)
+    await asyncio.gather(*(same.orchestrator.handle(event(f"e{i}")) for i in range(2)))
+    assert same.agent.max_active_calls == 1
+
+    different = harness(0.02)
+    await asyncio.gather(
+        different.orchestrator.handle(event("a", "requester")),
+        different.orchestrator.handle(event("b", "reviewer")),
+    )
+    assert different.agent.max_active_calls == 2
+    assert {call[1].memory.conversation_id for call in different.agent.calls if call[1].memory} == {
+        1,
+        2,
+    }
