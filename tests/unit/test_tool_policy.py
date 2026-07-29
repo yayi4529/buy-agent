@@ -3,6 +3,7 @@ import pytest
 from buy_agent.adapters.backend.fake_backend_gateway import fake_requirement
 from buy_agent.application.tool_policy import ToolPolicy
 from buy_agent.domain.identity import CurrentPrincipal
+from buy_agent.memory import SessionMemory
 
 
 def principal(*roles: str) -> CurrentPrincipal:
@@ -65,3 +66,31 @@ def test_terminal_status_exposes_no_mutation_tools() -> None:
         )
         == frozenset()
     )
+
+
+def test_requester_create_memory_exposes_only_requester_draft_tools() -> None:
+    tools = ToolPolicy().resolve_allowed_tools(
+        principal("REQUESTER"),
+        SessionMemory(1, current_action="CREATE_REQUEST"),
+        None,
+    )
+    assert tools == {
+        "save_request_draft_fields",
+        "list_available_buildings",
+        "select_building",
+        "recommend_products",
+        "select_product_recommendation",
+        "prepare_request_submission",
+    }
+    assert not tools & {
+        "approve_requirement",
+        "submit_to_purchaser",
+        "complete_warehouse_entry",
+    }
+
+
+def test_create_tools_require_requester_and_unbound_conversation() -> None:
+    memory = SessionMemory(1, current_action="CREATE_REQUEST")
+    policy = ToolPolicy()
+    assert policy.resolve_allowed_tools(principal("REVIEWER"), memory, None) == frozenset()
+    assert policy.resolve_allowed_tools(principal("REQUESTER"), memory, 101) == frozenset()

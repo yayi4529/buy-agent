@@ -4,6 +4,7 @@ from buy_agent.adapters.agent.fake_procurement_agent import FakeProcurementAgent
 from buy_agent.adapters.backend.fake_backend_gateway import FakeBackendGateway
 from buy_agent.adapters.channels.fake_channel import FakeChannel
 from buy_agent.adapters.persistence.local_lock_manager import LocalLockManager
+from buy_agent.adapters.persistence.memory_conversation_store import MemoryConversationStore
 from buy_agent.adapters.persistence.memory_event_store import MemoryEventStore
 from buy_agent.adapters.persistence.memory_message_store import MemoryMessageStore
 from buy_agent.adapters.persistence.memory_session_store import MemorySessionStore
@@ -19,6 +20,7 @@ from buy_agent.application.tool_policy import ToolPolicy
 class ApplicationContainer:
     backend: FakeBackendGateway
     session_store: MemorySessionStore
+    conversation_store: MemoryConversationStore
     message_store: MemoryMessageStore
     event_store: MemoryEventStore
     lock_manager: LocalLockManager
@@ -34,12 +36,13 @@ class ApplicationContainer:
 
 def build_fake_application() -> ApplicationContainer:
     backend = FakeBackendGateway()
+    conversation_store = MemoryConversationStore()
     session_store = MemorySessionStore()
     message_store = MemoryMessageStore()
     event_store = MemoryEventStore()
     lock_manager = LocalLockManager()
     identity_service = IdentityService(backend)
-    session_service = SessionService(session_store)
+    session_service = SessionService(conversation_store, session_store, message_store)
     requirement_resolver = RequirementResolver(backend)
     context_builder = ContextBuilder()
     tool_policy = ToolPolicy()
@@ -53,13 +56,14 @@ def build_fake_application() -> ApplicationContainer:
         tool_policy=tool_policy,
         agent=agent,
         channel=channel,
-        message_store=message_store,
         event_store=event_store,
         lock_manager=lock_manager,
+        backend_gateway=backend,
     )
     return ApplicationContainer(
         backend=backend,
         session_store=session_store,
+        conversation_store=conversation_store,
         message_store=message_store,
         event_store=event_store,
         lock_manager=lock_manager,

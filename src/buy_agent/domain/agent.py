@@ -29,6 +29,7 @@ class LLMResponse:
 @dataclass(frozen=True)
 class AgentResponse:
     text: str
+    interaction: InteractionView | None = None
 
 
 @dataclass(frozen=True)

@@ -66,7 +66,7 @@ class AwaitingAction:
 
 @dataclass(frozen=True)
 class SessionMemory:
-    conversation_id: str
+    conversation_id: int | str
     purchase_request_id: int | None = None
     current_action: str | None = None
     focused_role: str | None = None

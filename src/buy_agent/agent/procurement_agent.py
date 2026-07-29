@@ -12,6 +12,7 @@ from buy_agent.domain.agent import (
     ToolResult,
 )
 from buy_agent.domain.conversation import AgentRuntimeContext
+from buy_agent.domain.interaction import InteractionView
 from buy_agent.memory.models import SessionMemory
 from buy_agent.memory.patches import MemoryPatch
 from buy_agent.memory.service import apply_memory_patch
@@ -61,7 +62,7 @@ class ProcurementAgent:
             if not llm_response.tool_calls:
                 text = llm_response.content or ""
                 return AgentRunResult(
-                    AgentResponse(text),
+                    AgentResponse(text, self._latest_interaction(results)),
                     round_number,
                     tool_call_count,
                     tuple(results),
@@ -69,7 +70,7 @@ class ProcurementAgent:
                 )
             if tool_call_count >= self._settings.agent_max_tool_calls:
                 return AgentRunResult(
-                    AgentResponse(_MAX_TOOL_CALLS),
+                    AgentResponse(_MAX_TOOL_CALLS, self._latest_interaction(results)),
                     round_number,
                     tool_call_count,
                     tuple(results),
@@ -93,7 +94,7 @@ class ProcurementAgent:
             self._append_tool_result(messages, call, result)
 
         return AgentRunResult(
-            AgentResponse(_MAX_ROUNDS),
+            AgentResponse(_MAX_ROUNDS, self._latest_interaction(results)),
             self._settings.agent_max_rounds,
             tool_call_count,
             tuple(results),
@@ -166,4 +167,11 @@ class ProcurementAgent:
                 tool_call_id=call.call_id if call else None,
                 name=call.name if call else None,
             )
+        )
+
+    @staticmethod
+    def _latest_interaction(results: list[ToolResult]) -> InteractionView | None:
+        return next(
+            (result.interaction for result in reversed(results) if result.interaction is not None),
+            None,
         )

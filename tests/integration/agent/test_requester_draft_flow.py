@@ -211,7 +211,7 @@ async def test_edit_after_confirmation_invalidates_old_action() -> None:
         current_action="CREATE_REQUEST",
         collected_data={"quantity": 1},
         awaiting_action=awaiting,
-        confirmed=False,
+        confirmed=True,
     )
     subject = ProcurementAgent(
         llm=ScriptedLLMClient(

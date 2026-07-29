@@ -22,4 +22,5 @@ async def test_fake_application_assembles_and_runs_pipeline() -> None:
     assert len(application.agent.calls) == 1
     assert len(application.channel.sent_messages) == 1
     assert application.agent.calls[0][1].principal.user_id == 1
-    assert "requirement_id=101" in application.channel.sent_messages[0].text
+    assert "requirement_id=None" in application.channel.sent_messages[0].text
+    assert "save_request_draft_fields" in application.channel.sent_messages[0].text

@@ -35,3 +35,4 @@ class InteractionView:
     fields: tuple[InteractionField, ...]
     selection_groups: tuple[SelectionGroup, ...] = ()
     actions: tuple[InteractionAction, ...] = ()
+    fallback_text: str | None = None
