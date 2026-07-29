@@ -51,3 +51,22 @@ class MemoryConversationStore:
     async def get_by_id(self, conversation_id: int) -> AgentConversation | None:
         conversation = self._conversations.get(conversation_id)
         return replace(conversation) if conversation is not None else None
+
+    async def bind_purchase_request_and_complete(
+        self, *, conversation_id: int, request_id: int
+    ) -> AgentConversation:
+        conversation = self._conversations.get(conversation_id)
+        if conversation is None:
+            raise LookupError(f"conversation not found: {conversation_id}")
+        if conversation.status is not ConversationStatus.ACTIVE:
+            raise ValueError("conversation is not active")
+        if conversation.purchase_request_id is not None:
+            raise ValueError("conversation already has a purchase request")
+        updated = replace(
+            conversation,
+            purchase_request_id=request_id,
+            status=ConversationStatus.COMPLETED,
+            last_active_at=datetime.now(UTC),
+        )
+        self._conversations[conversation_id] = updated
+        return replace(updated)
