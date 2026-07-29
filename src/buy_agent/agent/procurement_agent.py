@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
+from buy_agent.agent.prompt_builder import PromptBuilder
 from buy_agent.bootstrap.settings import Settings
 from buy_agent.domain.agent import (
     AgentResponse,
@@ -32,16 +33,21 @@ class ProcurementAgent:
         llm: LLMClient,
         registry: ToolRegistry,
         settings: Settings,
+        prompt_builder: PromptBuilder | None = None,
     ) -> None:
         self._llm = llm
         self._registry = registry
         self._settings = settings
+        self._prompt_builder = prompt_builder or PromptBuilder()
 
     async def respond(self, user_message: str, context: AgentRuntimeContext) -> str:
         return (await self.run(user_message, context)).response.text
 
     async def run(self, user_message: str, context: AgentRuntimeContext) -> AgentRunResult:
-        messages = [LLMMessage(role="user", content=user_message)]
+        messages = [
+            LLMMessage(role="system", content=self._prompt_builder.build(context)),
+            LLMMessage(role="user", content=user_message),
+        ]
         definitions = self._registry.definitions_for(context.available_tool_names)
         results: list[ToolResult] = []
         executed: set[str] = set()
@@ -57,7 +63,15 @@ class ProcurementAgent:
             if len(llm_response.tool_calls) > 1:
                 result = self._error("MULTIPLE_TOOL_CALLS", "每轮最多允许一个工具调用。")
                 results.append(result)
-                self._append_tool_result(messages, None, result)
+                messages.append(
+                    LLMMessage(
+                        role="assistant",
+                        content=llm_response.content,
+                        tool_calls=llm_response.tool_calls,
+                    )
+                )
+                for rejected_call in llm_response.tool_calls:
+                    self._append_tool_result(messages, rejected_call, result)
                 continue
             if not llm_response.tool_calls:
                 text = llm_response.content or ""
@@ -78,6 +92,13 @@ class ProcurementAgent:
                 )
 
             call = llm_response.tool_calls[0]
+            messages.append(
+                LLMMessage(
+                    role="assistant",
+                    content=llm_response.content,
+                    tool_calls=llm_response.tool_calls,
+                )
+            )
             tool_call_count += 1
             result = await self._execute(call, context, working_memory, executed)
             results.append(result)

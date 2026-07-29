@@ -15,15 +15,17 @@ class ToolCall:
 @dataclass(frozen=True)
 class LLMMessage:
     role: Literal["system", "user", "assistant", "tool"]
-    content: str
+    content: str | None
     tool_call_id: str | None = None
     name: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 @dataclass(frozen=True)
 class LLMResponse:
     content: str | None = None
     tool_calls: tuple[ToolCall, ...] = ()
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
