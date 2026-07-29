@@ -1,10 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from buy_agent.bootstrap.settings import Settings
 from buy_agent.domain.agent import AgentResponse, AgentRunResult
 from buy_agent.domain.conversation import (
     AgentConversation,
     ConversationMessage,
+    ConversationStatus,
     MessageSenderType,
     NewAgentConversation,
     NewConversationMessage,
@@ -122,3 +123,60 @@ class SessionService:
                 content=content,
             )
         )
+
+    async def get_by_conversation_id(self, conversation_id: int) -> SessionBundle | None:
+        conversation = await self._conversations.get_by_id(conversation_id)
+        if conversation is None:
+            return None
+        memory = await self._states.get(conversation_id)
+        if memory is None:
+            return None
+        recent = await self._messages.list_recent(
+            conversation_id, limit=self._settings.recent_message_limit
+        )
+        return SessionBundle(conversation, memory, recent)
+
+    async def bind_purchase_request_and_complete(
+        self,
+        *,
+        conversation_id: int,
+        request_id: int,
+        expected_state_version: int,
+    ) -> SessionBundle:
+        conversation = await self._conversations.get_by_id(conversation_id)
+        memory = await self._states.get(conversation_id)
+        if conversation is None or memory is None:
+            raise LookupError(f"session not found: {conversation_id}")
+        if (
+            conversation.status is not ConversationStatus.ACTIVE
+            or conversation.purchase_request_id is not None
+        ):
+            raise ValueError("conversation cannot be completed")
+        if memory.purchase_request_id is not None:
+            raise ValueError("session already has a purchase request")
+        if memory.state_version != expected_state_version:
+            from buy_agent.ports.session_store import SessionStateVersionConflict
+
+            raise SessionStateVersionConflict(
+                f"expected state version {expected_state_version}, got {memory.state_version}"
+            )
+        updated_memory = replace(
+            memory,
+            purchase_request_id=request_id,
+            current_action=None,
+            current_stage="COMPLETED",
+            pending_field=None,
+            awaiting_action=None,
+            confirmed=True,
+            state_version=memory.state_version + 1,
+        )
+        saved_memory = await self._states.save(
+            updated_memory, expected_version=expected_state_version
+        )
+        completed = await self._conversations.bind_purchase_request_and_complete(
+            conversation_id=conversation_id, request_id=request_id
+        )
+        recent = await self._messages.list_recent(
+            conversation_id, limit=self._settings.recent_message_limit
+        )
+        return SessionBundle(completed, saved_memory, recent)

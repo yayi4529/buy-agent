@@ -5,6 +5,8 @@ from buy_agent.domain.identity import CurrentPrincipal, ExternalIdentity
 from buy_agent.domain.requirement import RequirementContext
 from buy_agent.ports.backend_gateway import (
     BuildingOption,
+    CreatedPurchaseRequest,
+    CreatePurchaseRequestCommand,
     HandlerCandidate,
     ProductRecommendation,
 )
@@ -33,6 +35,7 @@ class FakeBackendGateway:
         self,
         principals: dict[str, CurrentPrincipal] | None = None,
         requirements: dict[int, list[RequirementContext]] | None = None,
+        create_failure: str | None = None,
     ) -> None:
         self.principals = principals or self.default_principals()
         self.requirements = (
@@ -41,6 +44,11 @@ class FakeBackendGateway:
         self.calls: dict[str, list[dict[str, Any]]] = {}
         self.create_purchase_request_call_count = 0
         self.formal_action_call_count = 0
+        self.create_failure = create_failure
+        self.last_create_purchase_request: (
+            tuple[CurrentPrincipal, CreatePurchaseRequestCommand] | None
+        ) = None
+        self._created_by_key: dict[str, CreatedPurchaseRequest] = {}
         self.buildings = {
             1: (BuildingOption(1, "一号楼", True),),
             6: (
@@ -214,3 +222,34 @@ class FakeBackendGateway:
             building_id=building_id,
         )
         return self.reviewers.get(principal.user_id, {}).get(building_id, ())
+
+    async def create_purchase_request(
+        self,
+        *,
+        principal: CurrentPrincipal,
+        command: CreatePurchaseRequestCommand,
+    ) -> CreatedPurchaseRequest:
+        self.create_purchase_request_call_count += 1
+        self.last_create_purchase_request = (principal, command)
+        self._record("create_purchase_request", principal=principal, command=command)
+        existing = self._created_by_key.get(command.idempotency_key)
+        if existing is not None:
+            return existing
+        if self.create_failure == "permission":
+            raise PermissionError("mock permission denied")
+        if self.create_failure in {"building", "reviewer", "validation", "business"}:
+            raise ValueError(f"mock {self.create_failure} validation failed")
+        if self.create_failure == "technical":
+            raise RuntimeError("mock technical failure")
+        request_id = 1_000_000 + len(self._created_by_key) + 1
+        result = CreatedPurchaseRequest(
+            request_id=request_id,
+            request_no=f"MOCK-PR-{len(self._created_by_key) + 1:06d}",
+            status="PENDING_REVIEW",
+            current_handler_employee_id=command.reviewer_employee_id,
+        )
+        self._created_by_key[command.idempotency_key] = result
+        return result
+
+
+MockBackendGateway = FakeBackendGateway

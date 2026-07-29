@@ -33,6 +33,29 @@ class HandlerCandidate:
     display_label: str
 
 
+@dataclass(frozen=True)
+class CreatePurchaseRequestCommand:
+    building_id: int
+    device_profession: str
+    device_name: str
+    brand: str | None
+    model: str | None
+    quantity: int
+    unit: str
+    application_reason: str
+    applicant_remark: str | None
+    reviewer_employee_id: int
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class CreatedPurchaseRequest:
+    request_id: int
+    request_no: str
+    status: str
+    current_handler_employee_id: int
+
+
 class BackendGateway(Protocol):
     async def resolve_identity(self, identity: ExternalIdentity) -> CurrentPrincipal: ...
 
@@ -66,3 +89,10 @@ class BackendGateway(Protocol):
     async def list_reviewer_candidates(
         self, *, principal: CurrentPrincipal, building_id: int
     ) -> tuple[HandlerCandidate, ...]: ...
+
+    async def create_purchase_request(
+        self,
+        *,
+        principal: CurrentPrincipal,
+        command: CreatePurchaseRequestCommand,
+    ) -> CreatedPurchaseRequest: ...

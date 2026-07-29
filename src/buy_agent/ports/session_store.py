@@ -17,6 +17,10 @@ class ConversationStore(Protocol):
 
     async def get_by_id(self, conversation_id: int) -> AgentConversation | None: ...
 
+    async def bind_purchase_request_and_complete(
+        self, *, conversation_id: int, request_id: int
+    ) -> AgentConversation: ...
+
 
 class SessionStateStore(Protocol):
     async def get(self, conversation_id: int) -> SessionMemory | None: ...
